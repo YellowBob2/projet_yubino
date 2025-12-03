@@ -20,7 +20,7 @@ ISR(INT0_vect) {
 }
 
 // ms écoulées depuis reset compteur
-static uint16_t ui_get_ms(void) {
+uint16_t ui_get_ms(void) {
     uint16_t copy;
     cli();
     copy = g_ms_tick;
@@ -59,7 +59,7 @@ void ui_init(void) {
 
 
 // on dort jusqu'au prochain tick Timer0 ou interr
-static void ui_sleep_tick(uint16_t last_ms) {
+void ui_sleep_tick(uint16_t last_ms) {
     cli();
     if (g_ms_tick == last_ms) {
         sleep_enable();

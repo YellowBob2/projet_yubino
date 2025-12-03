@@ -20,7 +20,7 @@ CFLAGS  := -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os -std=gnu11 $(WARNINGS) \
 LDFLAGS := -mmcu=$(MCU) -Wl,--gc-sections
 
 # Sources: inclure micro-ecc/uECC.c pour générer micro-ecc/uECC.o
-SRCS := main.c rng.c storage.c uart.c ring_buffer.c ui.c micro-ecc/uECC.c
+SRCS := main.c commands.c rng.c storage.c uart.c ring_buffer.c ui.c micro-ecc/uECC.c
 OBJS := $(SRCS:.c=.o)
 
 TARGET := authenticator

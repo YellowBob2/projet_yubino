@@ -27,8 +27,8 @@
 #define CLIENT_DATA_HASH_SIZE 20
 
 // Configuration UI
-#define LED_BLINK_INTERVAL_MS 500   // 0.5 sec
-#define CONSENT_TIMEOUT_MS 10000 // 10 sec
+#define LED_BLINK_INTERVAL_MS 500   // 0.5 sec pour le clignotement led
+#define CONSENT_TIMEOUT_MS 10000 // 10 sec d'attente du consentement
 
 // Constantes matérielles
 #define LED_PORT PORTB
