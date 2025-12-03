@@ -1,39 +1,68 @@
-MCU = atmega328p
-F_CPU = 16000000UL
-BAUD = 115200
-CC = avr-gcc
-OBJCOPY = avr-objcopy
-CFLAGS = -Os -DF_CPU=$(F_CPU) -mmcu=$(MCU) -Wall -I. -Imicro-ecc
+# MCU and clock (override on command line, e.g. make MCU=atmega328p F_CPU=16000000UL)
+MCU ?= atmega328p
+F_CPU ?= 16000000UL
 
-# Fichiers sources locaux
-SRC_LOCAL = main.c uart.c ui.c rng.c storage.c
-# Fichier source de la librairie externe (micro-ecc)S
-SRC_LIB = micro-ecc/uECC.c
+CC := avr-gcc
+OBJCOPY := avr-objcopy
+SIZE := avr-size
+AVRDUDE := avrdude
 
-# Tous les objets sont placés dans le répertoire courant
-OBJ_LOCAL = $(SRC_LOCAL:.c=.o)
-OBJ_LIB = uECC.o # L'objet de la librairie sera uECC.o
-OBJ = $(OBJ_LOCAL) $(OBJ_LIB)
+# Warnings demandés
+WARNINGS := -Wall -Wextra -pedantic -Wshadow -Wpointer-arith -Wcast-align \
+            -Wwrite-strings \
+            -Wnested-externs -Winline -Wno-long-long \
+            -Wstrict-prototypes -Wno-array-bounds \
+            -Wmissing-prototypes -Wredundant-decls -Wmissing-declarations
+						#-Wno-unused-variable -Wno-unused-function -Wno-sign-compare -Wno-unused-parameter -Wno-redundant-decls -Wno-missing-prototypes
 
-# Règle explicite pour compiler uECC.c en uECC.o
-# $< est la dépendance (micro-ecc/uECC.c), $@ est la cible (uECC.o)
-$(OBJ_LIB): $(SRC_LIB)
-	$(CC) $(CFLAGS) -c $< -o $@
+CFLAGS  := -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os -std=gnu11 $(WARNINGS) \
+           -ffunction-sections -fdata-sections -I. -Imicro-ecc
+LDFLAGS := -mmcu=$(MCU) -Wl,--gc-sections
 
-# Règle implicite pour les fichiers locaux
+# Sources: inclure micro-ecc/uECC.c pour générer micro-ecc/uECC.o
+SRCS := main.c rng.c storage.c uart.c ring_buffer.c ui.c micro-ecc/uECC.c
+OBJS := $(SRCS:.c=.o)
+
+TARGET := authenticator
+ELF    := $(TARGET).elf
+HEX    := $(TARGET).hex
+
+# avrdude settings (override if needed)
+AVRDUDE_PROGRAMMER ?= usbasp
+AVRDUDE_PORT ?= /dev/ttyUSB0
+AVRDUDE_BAUD ?= 115200
+
+.PHONY: all clean flash size
+
+all: $(HEX) size
+
+# Link
+$(ELF): $(OBJS)
+	$(CC) $(LDFLAGS) -o $@ $^
+
+# Convert to hex
+$(HEX): $(ELF)
+	$(OBJCOPY) -O ihex -R .eeprom $< $@
+	@echo "Generated $@"
+
+# Generic rule to compile C sources
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-all: yubino.hex
+# If you prefer an explicit rule for micro-ecc object:
+# micro-ecc/uECC.o: micro-ecc/uECC.c
+#   $(CC) $(CFLAGS) -c $< -o $@
 
-yubino.elf: $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $^
+size: $(ELF)
+	$(SIZE) --format=avr --mcu=$(MCU) $(ELF)
 
-yubino.hex: yubino.elf
-	$(OBJCOPY) -O ihex -R .eeprom $< $@
-
-flash: yubino.hex
-	avrdude -F -V -c arduino -p ATMEGA328P -P /dev/ttyACM0 -b 115200 -U flash:w:yubino.hex
+flash: $(HEX)
+	@echo "Flashing $(HEX) to $(MCU) via $(AVRDUDE_PROGRAMMER) on $(AVRDUDE_PORT)"
+	$(AVRDUDE) -c $(AVRDUDE_PROGRAMMER) -p $(MCU) -P $(AVRDUDE_PORT) -b $(AVRDUDE_BAUD) -U flash:w:$(HEX):i
 
 clean:
-	rm -f *.o *.elf *.hex
+	rm -f $(OBJS) $(ELF) $(HEX)
+
+# Convenience: show variables
+print-%:
+	@echo '$*=$($*)'

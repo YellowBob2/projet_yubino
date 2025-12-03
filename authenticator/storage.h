@@ -6,9 +6,9 @@
 
 typedef struct {
     uint8_t used; // 0xFF si vide, 0x01 si utilisé
-    uint8_t app_id_hash[LEN_APP_ID_HASH];
-    uint8_t credential_id[LEN_CREDENTIAL_ID];
-    uint8_t private_key[LEN_PRIV_KEY];
+    uint8_t app_id_hash[SHA1_APP_ID_SIZE];
+    uint8_t credential_id[CREDENTIAL_ID_SIZE];
+    uint8_t private_key[PRIVATE_KEY_SIZE];
 } CredentialEntry;
 
 void storage_init(void);
