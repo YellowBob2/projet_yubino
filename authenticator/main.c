@@ -25,18 +25,13 @@ int main(void) {
     sei(); // Autoriser les interruptions globales
 
     while (1) {
-        // Endormir le CPU tant qu'aucun octet n'est disponible sur l'UART.
-        while (!(UCSR0A & (1 << RXC0))) {
-            sleep_mode();
-        }
+    sleep_mode();  // dort en permanence
 
-        // Lire l'octet de commande reçu
+    if (UCSR0A & (1 << RXC0)) {
         uint8_t cmd = UDR0;
-
-        // Déléguer le traitement au module de commandes, qui utilisera ensuite
-        // uart_receive_byte() pour lire les éventuels octets suivants.
         command_handle(cmd);
     }
+}
 
     return 0;
 }

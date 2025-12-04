@@ -1,6 +1,8 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
+#include <avr/sleep.h>
+
 
 #include "rng.h"
 
@@ -41,12 +43,11 @@ ISR(ADC_vect) {
 static int rng_adc_generate(uint8_t* buffer, unsigned int size) {
     for (unsigned int i = 0; i < size; i++) {
         adc_complete = 0;
-        // Lancer une conversion
         ADCSRA |= (1 << ADSC);
 
-        // Attendre la fin (avec timeout pour éviter blocage)
-        for (uint16_t timeout = 0; timeout < 500 && !adc_complete; timeout++) {
-            _delay_us(100);
+        set_sleep_mode(SLEEP_MODE_ADC);
+        while (!adc_complete) {
+            sleep_mode();
         }
 
         buffer[i] = adc_result;
@@ -54,30 +55,38 @@ static int rng_adc_generate(uint8_t* buffer, unsigned int size) {
     return (int)size;
 }
 
+
 /* ---------- RNG basé sur Timer1 ---------- */
 
 static void rng_timer_init(void) {
-    // Timer1 en mode normal, horloge sans préscaler
     TCCR1A = 0;
-    TCCR1B = (1 << CS10);
-    // Interruption sur overflow
-    TIMSK1 = (1 << TOIE1);
-    TCNT1 = 0;
+    TCCR1B = 0;               // OFF au repos
+    TIMSK1 = 0;
 }
 
+
 ISR(TIMER1_OVF_vect) {
-    // Accumule le bruit du timer dans timer_noise
     timer_noise += TCNT1;
 }
 
+
 static int rng_timer_generate(uint8_t* buffer, unsigned int size) {
+    TCNT1 = 0;
+    TIMSK1 = (1 << TOIE1);
+    TCCR1B = (1 << CS10);
+
     for (unsigned int i = 0; i < size; i++) {
         timer_noise = 0;
-        TCNT1 = 0;
-        // Attente "floue" pour injecter de la gigue
-        for (volatile uint16_t delay = 0; delay < 15000; delay++);
+
+        set_sleep_mode(SLEEP_MODE_IDLE);
+        sleep_mode();
+
         buffer[i] = (uint8_t)timer_noise;
     }
+
+    TCCR1B = 0;
+    TIMSK1 = 0;
+
     return (int)size;
 }
 
@@ -91,25 +100,38 @@ static void rng_combined_init(void) {
 
 static int rng_combined_generate(uint8_t* buffer, unsigned int size) {
     for (unsigned int i = 0; i < size; i++) {
-        /* Byte ADC */
+
+        /* --- Partie ADC --- */
         adc_complete = 0;
         ADCSRA |= (1 << ADSC);
-        for (uint16_t timeout = 0; timeout < 500 && !adc_complete; timeout++) {
-            _delay_us(100);
+
+        set_sleep_mode(SLEEP_MODE_ADC);
+        while (!adc_complete) {
+            sleep_mode();
         }
         uint8_t adc_byte = adc_result;
 
-        /* Byte Timer */
+        /* --- Partie Timer1 --- */
         timer_noise = 0;
         TCNT1 = 0;
-        for (volatile uint16_t delay = 0; delay < 8000; delay++);
+        TIMSK1 = (1 << TOIE1);
+        TCCR1B = (1 << CS10);
+
+        set_sleep_mode(SLEEP_MODE_IDLE);
+        sleep_mode();
+
+        TCCR1B = 0;
+        TIMSK1 = 0;
+
         uint8_t timer_byte = (uint8_t)timer_noise;
 
-        /* Mix des deux sources */
+        /* --- Mix final --- */
         buffer[i] = adc_byte ^ timer_byte;
     }
+
     return (int)size;
 }
+
 
 /* ---------- Sélection dynamique de la méthode ---------- */
 
