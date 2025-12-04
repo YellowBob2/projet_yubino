@@ -33,9 +33,15 @@ Les codes sont définis dans `authenticator/consts.h` et correspondent à ceux u
   - implémentent la logique de haut niveau des commandes (`MAKE_CREDENTIAL`, `GET_ASSERTION`, etc.) ;
   - orchestrent UART, RNG, stockage EEPROM et UI.
 - `uart.c` / `uart.h` : initialisation UART (115200 8N1), envoi/réception d’octets/buffers, interruption RX activée.
-- `ui.c` / `ui.h` : gestion de la LED et du bouton ; le consentement utilisateur est demandé avant les opérations sensibles, avec **clignotement toutes les 500 ms** et **timeout 10 s**.
+- `ui.c` / `ui.h` : gestion de la LED et du bouton ; le consentement utilisateur est demandé avant les opérations sensibles, avec **clignotement toutes les 500 ms** et **timeout 10 s** (pour que ce consentement soit donné automatiquement en mode debug, il faut décommenter la ligne 8 de ui.c)
 - `rng.c` / `rng.h` : génération d’aléa à partir du bruit de l’ADC.
 - `storage.c` / `storage.h` : stockage des credentials en EEPROM (structure `CredentialEntry`, itération, reset, find/save).
+
+#### Schéma matériel / câblage
+
+- **Microcontrôleur** : ATmega328P (Arduino Uno R3).
+- **LED de consentement** : connectée au **pin D5 (PD5)** via une résistance, puis au GND, configuré en sortie dans `ui.c`.
+- **Bouton poussoir** : connecté au **pin A0 (PC0)**, configuré en entrée avec **pull‑up interne** ; le bouton relie A0 au GND lorsqu’il est pressé.
 
 #### Compilation et flash
 
@@ -46,7 +52,6 @@ make          # compile le firmware (yubino.hex)
 make flash    # flash sur /dev/ttyACM0 avec avrdude
 ```
 
-Vérifiez que le port série (`/dev/ttyACM0`) et les droits d’accès sont corrects.
 
 ### 2. Client Python `yubino-client/`
 
@@ -62,42 +67,13 @@ Depuis `yubino-client/` :
 ```bash
 python3 -m venv .env
 source .env/bin/activate
-pip install -e .
+pip install .
 ```
 
 #### Lancement des tests
 
-Assurez‑vous que :
-- la carte avec le firmware `authenticator` est flashée et branchée ;
-- elle apparaît bien sur `/dev/ttyACM0` (modifiable dans `tests/device.py` si besoin).
-
-Puis, dans `yubino-client/` :
+Dans `yubino-client/` :
 
 ```bash
 python -m unittest tests.device -v
 ```
-
-### 3. Utilisation (exemple)
-
-Une fois le firmware flashé et le client installé :
-
-- **Reset du device** puis création/listing de credentials via Python :
-
-```python
-import serial, yubino.device
-
-dev = serial.Serial("/dev/ttyACM0", 115200, exclusive=True)
-yubino.device.reset(dev)
-cred_id, pubkey = yubino.device.make_credential(dev, "toto")
-entries = yubino.device.list_credentials(dev)
-```
-
-- Le bouton de consentement doit être pressé lorsque la LED clignote pour autoriser :  
-  - la création de credential (`MAKE_CREDENTIAL`),  
-  - la signature d’un challenge (`GET_ASSERTION`),  
-  - le reset EEPROM (`RESET`).
-
-### 4. Notes
-
-- Les anciens fichiers de brouillon (`BROUILLON.md`, ancien `Readme.md`) ne sont plus utilisés.  
-  La documentation principale est désormais ce `README.md`.

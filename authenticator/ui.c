@@ -1,9 +1,12 @@
 /* ui.c */
 #include "ui.h"
 #include <avr/io.h>
+#include <avr/sleep.h>
 #include <util/delay.h>
 
-// Configuration selon votre correction :
+// Décommenter pour activer le mode debug (auto-consent rapide)
+// #define UI_AUTOCONSENT_DEBUG
+
 // LED pilotée par la Pin D5 (PD5)
 #define LED_PIN         PD5
 // Bouton sur la Pin A0 (PC0)
@@ -12,10 +15,10 @@
 void ui_init(void) {
     /* Configuration de la LED sur D5 */
     DDRD |= (1 << LED_PIN);   // PD5 en SORTIE
-    PORTD &= ~(1 << LED_PIN); // Initialiser à LOW (Éteint si montage standard)
+    PORTD &= ~(1 << LED_PIN); // Initialiser à LOW 
 
     /* Configuration du Bouton sur A0 */
-    // Configurer A0 (Port C, bit 0) en ENTRÉE
+    // Configurer A0 en ENTRÉE
     DDRC &= ~(1 << BTN_PIN);
     // Activer la résistance de PULL-UP interne sur A0
     // Nécessaire car le bouton connecte au GND
@@ -24,14 +27,6 @@ void ui_init(void) {
 
 uint8_t ui_wait_for_consent(void) {
     uint16_t timeout_counter = 0;
-
-    // Pour les tests automatiques, on ne veut pas rester bloqué indéfiniment
-    // en attente d'une action utilisateur. On garde le clignotement de la LED
-    // mais on accepte automatiquement la commande après un court délai.
-    //
-    // Si tu veux forcer un vrai appui utilisateur, il suffit de :
-    //  - supprimer le bloc "auto-consent" ci-dessous
-    //  - ou augmenter fortement le seuil de timeout.
 
     // Boucle de 10 secondes (1000 * 10ms)
     while (timeout_counter < 1000) {
@@ -44,11 +39,13 @@ uint8_t ui_wait_for_consent(void) {
             return 1; // Succès (Consentement donné)
         }
 
-        // Auto-consent après ~500 ms pour ne pas bloquer les tests
-        // if (timeout_counter >= 50) { // 50 * 10 ms = 500 ms
-        //     PORTD &= ~(1 << LED_PIN);
-        //     return 1;
-        // }
+        // Mode debug : auto-consent après ~500 ms pour ne pas bloquer les tests
+        #ifdef UI_AUTOCONSENT_DEBUG
+        if (timeout_counter >= 50) { // 50 * 10 ms = 500 ms
+            PORTD &= ~(1 << LED_PIN);
+            return 1;
+        }
+        #endif
 
         // Gestion du clignotement (Toggle)
         // Change d'état toutes les 500ms (50 * 10ms)
@@ -56,6 +53,14 @@ uint8_t ui_wait_for_consent(void) {
             PORTD ^= (1 << LED_PIN); // Inverse l'état de D5
         }
 
+        // Pour limiter la consommation, on peut laisser le CPU dormir entre
+        // deux échantillons bouton. Le réveil est assuré par les interruptions
+        // déjà actives (UART RX, Timer1, ADC).
+        set_sleep_mode(SLEEP_MODE_IDLE);
+        sleep_mode();
+
+        // Petite temporisation de sécurité pour éviter de sur-échantillonner
+        // le bouton et garder un clignotement régulier.
         _delay_ms(10);
         timeout_counter++;
     }

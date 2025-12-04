@@ -124,8 +124,6 @@ static struct {
     .generate = rng_combined_generate
 };
 
-// Si à l’avenir tu veux changer de méthode à chaud, tu peux exposer cette
-// fonction dans rng.h. Pour le moment, on reste en scope interne.
 static void rng_set_method(uint8_t method) {
     switch (method) {
         case RNG_METHOD_ADC:
