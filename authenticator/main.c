@@ -1,138 +1,42 @@
 /* main.c - PROJET FINAL YUBINO */
 #include <avr/io.h>
-#include <util/delay.h>
-#include <string.h>
-#include "consts.h"
+#include <avr/interrupt.h>
+#include <avr/sleep.h>
+
 #include "uart.h"
 #include "ui.h"
 #include "rng.h"
-#include "storage.h"
-#include "micro-ecc/uECC.h"
+#include "commands.h"
 
-// Buffers globaux
-uint8_t buffer_app_id[LEN_APP_ID_HASH];
-uint8_t buffer_challenge[LEN_CHALLENGE];
-uint8_t public_key[LEN_PUB_KEY];
-uint8_t private_key[LEN_PRIV_KEY];
-uint8_t credential_id[LEN_CREDENTIAL_ID];
-uint8_t signature[LEN_SIGNATURE];
-
-/* --- Callbacks pour storage_iterate --- */
-
-// Callback pour compter les identifiants
-void count_cb(uint8_t* cred_id, uint8_t* app_hash, void* data) {
-    (void)cred_id; (void)app_hash; // Inutilisés
-    uint8_t* count_ptr = (uint8_t*)data;
-    (*count_ptr)++;
-}
-
-// Callback pour envoyer les identifiants via UART
-void send_cb(uint8_t* cred_id, uint8_t* app_hash, void* data) {
-    (void)data; // Inutilisé
-    uart_send_buffer(cred_id, LEN_CREDENTIAL_ID);
-    uart_send_buffer(app_hash, LEN_APP_ID_HASH);
-}
-
-/* --- Gestionnaires de commandes --- */
-
-void handle_make_credential() {
-    // 1. Recevoir SHA1(app_id) (20 octets)
-    for(int i=0; i<LEN_APP_ID_HASH; i++) buffer_app_id[i] = uart_receive_byte();
-
-    // 2. Consentement
-    if (!ui_wait_for_consent()) {
-        uart_send_byte(STATUS_ERR_APPROVAL);
-        return;
-    }
-
-    // 3. Crypto : Générer clés
-    uECC_set_rng(rng_generate);
-    if (!uECC_make_key(public_key, private_key, uECC_secp160r1())) {
-        uart_send_byte(STATUS_ERR_CRYPTO_FAILED);
-        return;
-    }
-
-    // 4. Générer credential_id
-    rng_generate(credential_id, LEN_CREDENTIAL_ID);
-
-    // 5. Sauvegarder
-    if (!storage_save(buffer_app_id, credential_id, private_key)) {
-        uart_send_byte(STATUS_ERR_STORAGE_FULL);
-        return;
-    }
-
-    // 6. Répondre
-    uart_send_byte(STATUS_OK);
-    uart_send_buffer(credential_id, LEN_CREDENTIAL_ID);
-    uart_send_buffer(public_key, LEN_PUB_KEY);
-}
-
-void handle_get_assertion() {
-    // 1. Recevoir app_id (20) et challenge (20)
-    for(int i=0; i<LEN_APP_ID_HASH; i++) buffer_app_id[i] = uart_receive_byte();
-    for(int i=0; i<LEN_CHALLENGE; i++) buffer_challenge[i] = uart_receive_byte();
-
-    // 2. Chercher la clé
-    if (!storage_find_key(buffer_app_id, private_key, credential_id)) {
-        uart_send_byte(STATUS_ERR_NOT_FOUND);
-        return;
-    }
-
-    // 3. Consentement
-    if (!ui_wait_for_consent()) {
-        uart_send_byte(STATUS_ERR_APPROVAL);
-        return;
-    }
-
-    // 4. Signer
-    uECC_set_rng(rng_generate);
-    if (!uECC_sign(private_key, buffer_challenge, LEN_CHALLENGE, signature, uECC_secp160r1())) {
-        uart_send_byte(STATUS_ERR_CRYPTO_FAILED);
-        return;
-    }
-
-    // 5. Répondre
-    uart_send_byte(STATUS_OK);
-    uart_send_buffer(credential_id, LEN_CREDENTIAL_ID);
-    uart_send_buffer(signature, LEN_SIGNATURE);
-}
-
-void handle_list_credentials() {
-    uint8_t count = 0;
-    // Compter
-    storage_iterate(count_cb, &count);
-    
-    // Répondre Header
-    uart_send_byte(STATUS_OK);
-    uart_send_byte(count);
-    
-    // Envoyer liste
-    storage_iterate(send_cb, NULL);
-}
-
-void handle_reset() {
-    if (!ui_wait_for_consent()) {
-        uart_send_byte(STATUS_ERR_APPROVAL);
-        return;
-    }
-    storage_reset();
-    uart_send_byte(STATUS_OK);
+// Interruption UART utilisée uniquement pour réveiller le CPU du mode sleep.
+// On ne lit PAS UDR0 ici pour ne pas "manger" l'octet que les fonctions
+// de plus haut niveau (command_handle / uart_receive_byte) doivent traiter.
+ISR(USART_RX_vect) {
+    // Rien à faire : le simple fait d'avoir une ISR réveille le MCU.
 }
 
 int main(void) {
     uart_init();
     ui_init();
     rng_init();
-    
+
+    // Mode de sommeil "idle" : le CPU dort mais le module UART continue de fonctionner.
+    set_sleep_mode(SLEEP_MODE_IDLE);
+    sei(); // Autoriser les interruptions globales
+
     while (1) {
-        uint8_t cmd = uart_receive_byte();
-        switch (cmd) {
-            case CMD_MAKE_CREDENTIAL:  handle_make_credential(); break;
-            case CMD_GET_ASSERTION:    handle_get_assertion(); break;
-            case CMD_LIST_CREDENTIALS: handle_list_credentials(); break;
-            case CMD_RESET:            handle_reset(); break;
-            default:                   uart_send_byte(STATUS_ERR_COMMAND_UNKNOWN); break;
+        // Endormir le CPU tant qu'aucun octet n'est disponible sur l'UART.
+        while (!(UCSR0A & (1 << RXC0))) {
+            sleep_mode();
         }
+
+        // Lire l'octet de commande reçu
+        uint8_t cmd = UDR0;
+
+        // Déléguer le traitement au module de commandes, qui utilisera ensuite
+        // uart_receive_byte() pour lire les éventuels octets suivants.
+        command_handle(cmd);
     }
+
     return 0;
 }

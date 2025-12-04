@@ -17,8 +17,8 @@ void uart_init(void) {
 
     // 8 bits de données, pas de parité, 1 stop bit (8N1) 
     UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
-    // Activer RX et TX
-    UCSR0B = (1 << RXEN0) | (1 << TXEN0);
+    // Activer RX, TX et interruption de réception (pour réveiller le MCU du mode sleep)
+    UCSR0B = (1 << RXEN0) | (1 << TXEN0) | (1 << RXCIE0);
 }
 
 void uart_send_byte(uint8_t data) {

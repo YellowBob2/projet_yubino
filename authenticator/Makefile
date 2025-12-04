@@ -6,7 +6,7 @@ OBJCOPY = avr-objcopy
 CFLAGS = -Os -DF_CPU=$(F_CPU) -mmcu=$(MCU) -Wall -I. -Imicro-ecc
 
 # Fichiers sources locaux
-SRC_LOCAL = main.c uart.c ui.c rng.c storage.c
+SRC_LOCAL = main.c uart.c ui.c rng.c storage.c commands.c
 # Fichier source de la librairie externe (micro-ecc)S
 SRC_LIB = micro-ecc/uECC.c
 
