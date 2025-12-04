@@ -45,10 +45,10 @@ uint8_t ui_wait_for_consent(void) {
         }
 
         // Auto-consent après ~500 ms pour ne pas bloquer les tests
-        if (timeout_counter >= 50) { // 50 * 10 ms = 500 ms
-            PORTD &= ~(1 << LED_PIN);
-            return 1;
-        }
+        // if (timeout_counter >= 50) { // 50 * 10 ms = 500 ms
+        //     PORTD &= ~(1 << LED_PIN);
+        //     return 1;
+        // }
 
         // Gestion du clignotement (Toggle)
         // Change d'état toutes les 500ms (50 * 10ms)
