@@ -39,9 +39,13 @@ Les codes sont définis dans `authenticator/consts.h` et correspondent à ceux u
 
 #### Schéma matériel / câblage
 
-- **Microcontrôleur** : ATmega328P (Arduino Uno R3).
+- **Microcontrôleur** : ATmega328P.
 - **LED de consentement** : connectée au **pin D5 (PD5)** via une résistance, puis au GND, configuré en sortie dans `ui.c`.
 - **Bouton poussoir** : connecté au **pin A0 (PC0)**, configuré en entrée avec **pull‑up interne** ; le bouton relie A0 au GND lorsqu’il est pressé.
+
+Un schéma du montage (disponible dans le projet si trop petit ici) :
+
+![alt text](Schema.png)
 
 #### Compilation et flash
 
