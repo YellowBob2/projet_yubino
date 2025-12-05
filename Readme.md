@@ -37,6 +37,83 @@ Les codes sont définis dans `authenticator/consts.h` et correspondent à ceux u
 - `rng.c` / `rng.h` : génération d’aléa à partir du bruit de l’ADC.
 - `storage.c` / `storage.h` : stockage des credentials en EEPROM (structure `CredentialEntry`, itération, reset, find/save).
 
+#### Choix techniques
+
+**1. Utilisation des timers**
+
+1. **RNG (Timer1)** : accumule du bruit en temps réel via une ISR d'overflow (TIMER1_OVF_vect). Une interruption fréquente et précise est nécessaire pour collecter du bruit utile et injecter de la gigue. Timer1 (16-bit) offre une meilleure résolution que Timer0.
+2. **UI (Timer0)** : génère une interruption toutes les 1 ms (mode CTC). Cette fréquence régulière pilote un compteur `ui_ms_counter` utilisé pour gérer le clignotement (toggle toutes les 500 ms) et le timeout (10 s). Un tick de 1 ms offre une précision suffisante pour l'UI sans surcharger le processeur.
+
+**Alternative rejetée : un seul timer pour les deux**
+
+Théoriquement, on pourrait utiliser un seul timer en mode CTC ou PWM pour gérer les deux tâches via une seule ISR multiplexée. Cependant :
+- Une fréquence commune (ex. 1 ms) serait soit trop lente pour le RNG (perte d'entropie), soit trop rapide pour l'UI (ISR trop fréquente, consommation énergétique élevée).
+- Multiplexer deux tâches indépendantes dans une seule ISR rend le code plus complexe et moins maintenable.
+- Garder deux timers distincts permet à chacun d'optimiser sa fréquence et son comportement indépendamment.
+
+**2. Stockage EEPROM avec slot remplacement (pas append-only)**
+
+Dans `storage.c`, le système permet de remplacer une clé existante pour un même `app_id` sans avoir à la supprimer manuellement :
+- On recherche d'abord un slot existant (même `SHA1(app_id)`) — s'il existe, on le réutilise.
+- Sinon, on trouve le premier slot libre.
+- Cette stratégie simplifie le protocole côté client (pas besoin de `RESET` entre deux enregistrements pour le même service).
+
+**Alternative rejetée** : système append-only strict sans remplacement.
+- Avantage : garantit que les anciennes clés ne sont jamais écrasées (trace d'audit historique).
+- Inconvénient : sur ATmega328P avec 1 KB EEPROM (≈15 credentials max), l'usager serait vite bloqué s'il se réenregistre auprès du même service. Le protocole de test client Python est plus lourd.
+- Choix actuel : le remplacement est acceptable car c'est un prototype éducatif et la menace d'overflow est rare.
+
+**3. RNG combiné (ADC + Timer1 avec XOR)**
+
+Dans `rng.c`, la méthode par défaut (`RNG_METHOD_COMBINED`) fusionne deux sources d'aléa :
+- **ADC** : lit du bruit sur un canal non connecté ; fréquence ≈ quelques ms.
+- **Timer1 (16-bit)** : accumule le TCNT1 sur overflows ; fréquence très rapide (≈65 µs par overflow à 16 MHz).
+- **Résultat** : XOR des deux octets pour une meilleure entropie.
+
+**Alternatives rejetées** :
+- ADC seul : plus lent et entropie limitée (bruit thermique faible sur un canal flottant).
+- Timer seul : rapide mais entropie corrélée (TCNT1 jitter prévisible si pas d'événement externe).
+- MD5/SHA1 sur ADC : trop coûteux en cycles CPU pour un ATmega328P; XOR est plus léger et suffisant pour ECDSA sur secp160r1 (protection de 80 bits seulement).
+
+**4. Modèle stateless pour les commandes (pas de session)**
+
+Dans `commands.c`, chaque commande est indépendante :
+- Pas de contexte de session qui persiste entre deux commandes.
+- Chaque `MakeCredential`, `GetAssertion` etc. alloue ses buffers localement et remet à zéro après.
+- Le consentement utilisateur est demandé à chaque opération sensible.
+
+**Avantage** : robustesse et simplicité ; pas de race condition sur un état global de session.
+
+**Alternative rejetée** : machine à états avec contexte de session.
+- Serait plus compliquée et consommerait plus de RAM (ATmega328P : 2 KB seulement).
+- Avantage : permettrait de pipeliner des commandes ; inconvénient : overkill pour ce protocole simple.
+
+**5. Callback polymorphe pour `storage_iterate()`**
+
+Dans `storage.c` et `commands.c`, la fonction `storage_iterate()` accepte un pointeur de fonction (callback) pour éviter du code dupliqué :
+- `ListCredentials` utilise deux passes : comptage puis envoi.
+- Plutôt que d'itérer deux fois (boucle en dur), on passe deux callbacks différents.
+
+```c
+// Deux usages du même itérateur :
+storage_iterate(count_cb, &count);      // compte les entrées
+storage_iterate(send_cb, NULL);         // envoie les entrées
+```
+
+**Alternative rejetée** : fonction monolithique `storage_list_all()` qui retourne un tableau.
+- Inconvénient : consommation RAM accrue (copie de tous les credentials en RAM) ; impraticable sur ATmega328P.
+- Choix actuel : callback offre un streaming sans copie et reste peu coûteux en code.
+
+**6. Mode veille `SLEEP_MODE_IDLE` dans `main.c` et `ui.c`**
+
+Le CPU entre en mode idle (pas en power-down) pour réduire la consommation tout en permettant aux ISR de fonctionner :
+- Timers, UART RX, ADC ISR continuent de fonctionner.
+- Réveil instantané sur interruption.
+
+**Alternative rejetée** : `SLEEP_MODE_PWR_DOWN`.
+- Avantage : plus faible consommation.
+- Inconvénient : Les timers sont désactivés ; seule une interruption externe (INT0 bouton) réveille le MCU. Avec l'UI qui a besoin de clignoter régulièrement via Timer0, impossible.
+
 #### Schéma matériel / câblage
 
 - **Microcontrôleur** : ATmega328P.
